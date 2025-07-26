@@ -119,11 +119,6 @@ jobs:
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
           git clone https://github.com/WildPlusKernel/kernel_patches.git
 
-      - name: Check Disk Space Before Sync
-        run: |
-          echo "Disk space before kernel source sync:"
-          df -h
-
       - name: Initialize and Sync Kernel Source
         run: |
           echo "Creating folder for configuration: $CONFIG..."
@@ -200,7 +195,7 @@ jobs:
           # Copy SUSFS patches
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./common/
           cd common
-          patch -p1 --forward --fuzz=3 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch
+          patch -p1 --forward < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch
           cd ..
           cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
@@ -214,28 +209,34 @@ jobs:
               echo "Applying SUSFS patches for Official KernelSU..."
               cd ./KernelSU
               cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-              patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch
+              patch -p1 --forward < 10_enable_susfs_for_ksu.patch
               ;;
             "NEXT")
               echo "Applying SUSFS patches for KernelSU Next..."
               cd ./KernelSU-Next
               cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-              patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
+              patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
               
               cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_apk_sign.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_apk_sign.c.patch
+              patch -p1 --forward < fix_apk_sign.c.patch
               
               cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_core_hook.c.patch ./
               patch -p1 --forward --fuzz=3 < fix_core_hook.c.patch
               
               cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_selinux.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_selinux.c.patch
+              patch -p1 --forward < fix_selinux.c.patch
               
               cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_ksud.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_ksud.c.patch
+              patch -p1 --forward < fix_ksud.c.patch
 
               cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_rules.c.patch ./
-              patch -p1 --forward --fuzz=3 < fix_rules.c.patch
+              patch -p1 --forward < fix_rules.c.patch
+
+              cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_sucompat.c.patch ./
+              patch -p1 --forward < fix_sucompat.c.patch
+
+              cp ../../kernel_patches/next/susfs_fix_patches/v1.5.9/fix_kernel_compat.c.patch ./
+              patch -p1 --forward < fix_kernel_compat.c.patch
               ;;
             "MKSU")
               echo "Applying SUSFS patches for MKSU..."
@@ -279,11 +280,11 @@ jobs:
           if [ "${{ inputs.kernelsu_variant }}" == "NEXT" ]; then
             echo "Applying hooks for KernelSU-Next..."
             cp ../../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
-            patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch
+            patch -p1 --forward -F 3 < scope_min_manual_hooks_v1.4.patch
           elif [ "${{ inputs.kernelsu_variant }}" == "WILD" ]; then
             echo "Applying hooks for Wild KSU..."
             cp ../../kernel_patches/wild/syscall_hooks.patch ./
-            patch -p1 -F 3 < syscall_hooks.patch
+            patch -p1 --forward -F 3 < syscall_hooks.patch
           fi
 
       - name: Apply Hide Stuff Patches
@@ -291,7 +292,28 @@ jobs:
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG/common"
           cp ../../kernel_patches/69_hide_stuff.patch ./
-          patch -p1 -F 3 < 69_hide_stuff.patch
+          patch -p1 --forward -F 3 < 69_hide_stuff.patch
+
+      - name: Fix WiFi and Bluetooth on Samsung 6.6 GKI devices
+        if: ${{ ( inputs.kernel_version == '6.6' ) }}
+        run: |
+          echo "[+] Adding Samsung KDP exported symbols to abi_gki_aarch64_galaxy"
+          SYMBOL_LIST=$CONFIG/common/android/abi_gki_aarch64_galaxy
+          echo "kdp_set_cred_non_rcu" >> $SYMBOL_LIST
+          echo "kdp_usecount_dec_and_test" >> $SYMBOL_LIST
+          echo "kdp_usecount_inc" >> $SYMBOL_LIST
+          echo "[+] Adding Samsung KDP exported symbols definition to abi_gki_aarch64.stg"
+          cd $CONFIG/common
+          PATCH="../../kernel_patches/samsung/min_kdp/add-min_kdp-symbols.patch"
+          if patch -p1 --dry-run < $PATCH; then
+            echo "[+] Successfully added Samsung KDP exported symbols definition to abi_gki_aarch64.stg"
+            patch -p1 --no-backup-if-mismatch < $PATCH
+          fi
+          echo "[+] Adding Samsung minimal KDP driver"
+          cd drivers
+          cp "../../../kernel_patches/samsung/min_kdp/min_kdp.c" min_kdp.c
+          echo "obj-y += min_kdp.o" >> Makefile
+
 
       - name: Add Configuration Settings
         run: |
@@ -359,19 +381,23 @@ jobs:
       - name: Change Kernel Name
         run: |
           cd "$CONFIG"
-
-          # modify UTS_VERSION
-          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./common/scripts/mkcompile_h
-          
-          sed -i '$s|echo "\$res"|echo "\$res-${{ inputs.kernelsu_variant }}-v$KSUVER-SUSFS-v1.5.9-Wild"|' ./common/scripts/setlocalversion
           if [ -f "build/build.sh" ]; then
-            sed -i 's/-dirty//' ./common/scripts/setlocalversion
+              perl -pi -e 's/-dirty//' ./common/scripts/setlocalversion
+              perl -0777 -pi -e 's/(.*)(echo "\$res")/$1echo "\$res-Next-v\$KSUVER-SUSFS-v1.5.9-Wild"/s' ./common/scripts/setlocalversion
+              perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./common/scripts/mkcompile_h
           else
-            sed -i 's/build-timestamp = $(or $(KBUILD_BUILD_TIMESTAMP), $(build-timestamp-auto))/build-timestamp = "Sun Apr 20 04:20:00 UTC 2025"/' ./common/init/Makefile
-            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
-            rm -rf ./common/android/abi_gki_protected_exports_*
-            sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
-            sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-${{ inputs.kernelsu_variant }}-v$KSUVER-SUSFS-v1.5.9-Wild\"/" ./common/arch/arm64/configs/gki_defconfig
+              #Remove -maybe-dirty
+              perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
+              
+              #Set Kernel Name
+              echo "CONFIG_LOCALVERSION=\"-NEXT-v$KSUVER-SUSFS-v1.5.9-Wild\"" >> ./common/arch/arm64/configs/gki_defconfig
+
+              #Set Kernel Timestamp
+              perl -pi -e 's/build-timestamp = \$\(or \$\(KBUILD_BUILD_TIMESTAMP\), \$\(build-timestamp-auto\)\)/build-timestamp = "Sun Apr 20 04:20:00 UTC 2025"/' ./common/init/Makefile
+
+              #Remove Abi Exports and Error
+              rm -rf ./common/android/abi_gki_protected_exports_*
+              perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
           fi
 
       - name: Build

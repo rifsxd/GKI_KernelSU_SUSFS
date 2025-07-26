@@ -247,7 +247,7 @@ jobs:
             -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -F message_thread_id="${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}" \
             -F text="
-            🌽 *New Stable Kernel Release Uploaded*  
+            🌽 *New Kernel Release Uploaded*  
             📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})  
             🗂️ *Branch:* ${{ github.ref_name }}  
             ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
