@@ -30,8 +30,8 @@ jobs:
             os_patch_level: "2024-05"
           - sub_level: "167"
             os_patch_level: "2024-11"
-          - sub_level: "180"
-            os_patch_level: "2025-05"
+          #- sub_level: "180"
+          #  os_patch_level: "2025-05"
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:
